@@ -71,11 +71,38 @@ for iebn0 = 1:N_EbN0
         %%%%%实际函数中不添加前导序列
         Frame_transmit = OFDMModulator(Frame_pilot, N_sym, N_subcarrier, N_symbol, N_Tx, N_GI);
         %%%%%%%%%%%%%%%%%%%%%%%%%信道%%%%%%%%%%%%%%%%%%%%%%%%%%
+        H = ones(N_subcarrier, N_Tx*N_Rx);
         Power_transmit = var(Frame_transmit);%发送信号功率
         N_noise = size(Frame_transmit,2);
         noise = NoiseGenerator(EbN0, Power_transmit, N_noise);
-        Frame_recieve = Frame_transmit+noise;
+        Frame_noise = Frame_transmit+noise;
         %%%%%%%%%%%%%%%%%%%%%%%%%接收机%%%%%%%%%%%%%%%%%%%%%%%%%%
-        
+        for iuser = 1:N_user
+            %无信道估计，同步等
+
+            % OFDM解调
+            Frame_recieve = OFDMDemodulator(Frame_noise, N_sym, N_subcarrier,N_symbol,N_Rx, N_GI);
+            % 接收机分集处理和空时解码
+            Frame_decoded = STBCDecoding(Frame_recieve, H, N_subcarrier, N_Tx,N_Rx, N_symbol);
+            % 根据每用户,每子载波的调制方式,进行解调
+            Frame_demod = Demodulator(Frame_decoded, index_data_per_user{iuser}, N_mod, N_symbol);
+            %无信道解码, 包括RS解码, 卷积码Viterbi编码等
+            Frame_result{iuser}= Frame_demod;
+            % 本帧,本信噪比下,本用户的性能统计
+            n_biterror = sum(abs(Frame_result{iuser} - Frame_bit(iuser).data))%误码率计算
+            BERs{iuser}(iframe,iebn0) = n_biterror/(N_data*N_symbol);
+        end
     end
+end
+%% 画图
+for iuser = 1:N_user
+    BER = sum(BERs{iuser},1)./(N_frame);
+    figure(1);
+    semilogy(EbN0s_dB,BER,'b-*'); 
+    hold on ;
+    grid on ;
+    xlabel('Eb/No (dB)','FontSize',12);
+    ylabel('BER','FontSize',12);
+    title('系统BER~Eb/No性能曲线');
+    hold on
 end

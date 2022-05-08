@@ -62,7 +62,43 @@ for iebn0 = 1:N_EbN0
         % 调制,Frame的大小是(N_subcarrier, Nsymbol)
         % 但实际大小是（N_data/N_user*N_user,N_symbol）
         % 因为只有这部分子载波被使用了
+%         Frame_zero_padding = cell(1,4);
+%         for ii = 1:4
+%             data = randi([0,1], 5760, 1);
+%             % data = [ones(5760/2,1); zeros(5760/2,1)];
+%             % data = zeros(5760,1);
+%             Frame_zero_padding{ii} = data;
+%         end
         Frame_mod = Modulator(Frame_zero_padding, index_data_per_user, N_data, N_user, N_symbol, N_mod, N_subcarrier);
         % 空时编码
+        Frame_STBC = STBCCoding(Frame_mod, N_subcarrier, N_symbol, N_Tx);
+        % 插入导频
+        Frame_pilot = AddPilot(Frame_STBC, index_pilot, N_symbol, N_Tx);
+        % OFDM调制,加循环前缀，加前导序列. 如果使用发送分集,则输出多条天线的信号
+        %%%%%实际函数中不添加前导序列
+        Frame_transmit = OFDMModulator(Frame_pilot, N_sym, N_subcarrier, N_symbol, N_Tx, N_GI);
+        %%%%%%%%%%%%%%%%%%%%%%%%%信道%%%%%%%%%%%%%%%%%%%%%%%%%%
+        H = ones(N_subcarrier, N_Tx*N_Rx);
+        Power_transmit = var(Frame_transmit);%发送信号功率
+        N_noise = size(Frame_transmit,2);
+        noise = NoiseGenerator(EbN0, Power_transmit, N_noise);
+        Frame_noise = Frame_transmit+noise;
+        %%%%%%%%%%%%%%%%%%%%%%%%%接收机%%%%%%%%%%%%%%%%%%%%%%%%%%
+        for iuser = 1:N_user
+            %无信道估计，同步等
+
+            % OFDM解调
+            Frame_recieve = OFDMDemodulator(Frame_noise, N_sym, N_subcarrier,N_symbol,N_Rx, N_GI);
+            % 接收机分集处理和空时解码
+            Frame_decoded = STBCDecoding(Frame_recieve, H, N_subcarrier, N_Tx,N_Rx, N_symbol);
+            % 根据每用户,每子载波的调制方式,进行解调
+            Frame_demod = Demodulator(Frame_mod, index_data_per_user{iuser}, N_mod, N_symbol);
+            %无信道解码, 包括RS解码, 卷积码Viterbi编码等
+            Frame_result{iuser}= Frame_demod;
+            % 本帧,本信噪比下,本用户的性能统计
+            n_biterror = sum(abs(Frame_result{iuser} - Frame_zero_padding{iuser}))
+            % n_biterror = sum(abs(Frame_result{iuser} - Frame_bit(iuser).data))%误码率计算
+            BERs{iuser}(iframe,iebn0) = n_biterror ;
+        end
     end
 end
